@@ -12,9 +12,18 @@ routes = [
 name = "ROOMS"
 class_name = "Room"
 
+[[durable_objects.bindings]]
+name = "LIMITERS"
+class_name = "IpLimiter"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
 
-# Set the room password as a secret, NOT here:
-#   wrangler secret put ROOM_PASSWORD
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["IpLimiter"]
+
+# Rooms are keyed by the password the user types (hashed), so there is no
+# server-wide secret to set. The old ROOM_PASSWORD secret is unused and can
+# be removed with: wrangler secret delete ROOM_PASSWORD
