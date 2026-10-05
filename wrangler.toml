@@ -2,11 +2,11 @@ name = "copyto"
 main = "src/worker.js"
 compatibility_date = "2026-01-01"
 
-# Custom domain: add copy.jaba.ge as a route after first deploy,
-# or configure it in the Cloudflare dashboard under Workers Routes.
-# routes = [
-#   { pattern = "copy.jaba.ge", custom_domain = true }
-# ]
+# Custom domain: copy.jaba.ge is served directly by this Worker.
+# Wrangler provisions the DNS record and TLS cert on the jaba.ge zone.
+routes = [
+  { pattern = "copy.jaba.ge", custom_domain = true }
+]
 
 [[durable_objects.bindings]]
 name = "ROOMS"
