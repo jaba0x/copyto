@@ -1,0 +1,13 @@
+{
+  "name": "copyto",
+  "version": "1.0.0",
+  "description": "CopyTo — real-time shared clipboard over Cloudflare Workers + Durable Objects",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}
