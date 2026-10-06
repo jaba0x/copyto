@@ -12,6 +12,8 @@
 const ROOM_TTL_MS = 60 * 60 * 1000; // 1 hour
 const MAX_ROOMS_PER_IP = 5;
 const MIN_PASSWORD_LEN = 6;
+const DEFAULT_MAX_MEMBERS = 2;  // a room starts as a 2-person room
+const HARD_MAX_MEMBERS = 10;    // ceiling even after members raise the limit
 
 export default {
   async fetch(request, env) {
@@ -121,10 +123,12 @@ export class Room {
     this.text = "";
     this.rev = 0;
     this.createdAt = 0;
+    this.maxMembers = DEFAULT_MAX_MEMBERS;
     this.state.blockConcurrencyWhile(async () => {
       this.text = (await this.state.storage.get("text")) || "";
       this.rev = (await this.state.storage.get("rev")) || 0;
       this.createdAt = (await this.state.storage.get("createdAt")) || 0;
+      this.maxMembers = (await this.state.storage.get("maxMembers")) || DEFAULT_MAX_MEMBERS;
     });
   }
 
@@ -139,9 +143,11 @@ export class Room {
       this.createdAt = now;
       this.text = "";
       this.rev = 0;
+      this.maxMembers = DEFAULT_MAX_MEMBERS;
       await this.state.storage.put("createdAt", now);
       await this.state.storage.put("text", "");
       await this.state.storage.put("rev", 0);
+      await this.state.storage.put("maxMembers", DEFAULT_MAX_MEMBERS);
       await this.state.storage.setAlarm(now + ROOM_TTL_MS);
     }
   }
@@ -158,10 +164,25 @@ export class Room {
 
   handleSession(ws) {
     ws.accept();
+    // Capacity: a room holds at most maxMembers people (default 2). Members can
+    // raise the limit from inside the room.
+    if (this.sessions.size >= this.maxMembers) {
+      try { ws.send(JSON.stringify({ type: "full", max: this.maxMembers })); } catch {}
+      try { ws.close(4001, "room full"); } catch {}
+      return;
+    }
     this.sessions.add(ws);
     ws.send(
-      JSON.stringify({ type: "init", text: this.text, rev: this.rev, expiresAt: this.expiresAt() })
+      JSON.stringify({
+        type: "init",
+        text: this.text,
+        rev: this.rev,
+        expiresAt: this.expiresAt(),
+        members: this.sessions.size,
+        max: this.maxMembers,
+      })
     );
+    this.broadcastMembers();
 
     ws.addEventListener("message", async (evt) => {
       let msg;
@@ -193,11 +214,24 @@ export class Room {
         this.broadcast(evt.data, ws);
         return;
       }
+      // Any member may raise the room's member limit by one.
+      if (msg.type === "raise-limit") {
+        if (this.maxMembers < HARD_MAX_MEMBERS) {
+          this.maxMembers++;
+          await this.state.storage.put("maxMembers", this.maxMembers);
+          this.broadcastMembers();
+        }
+        return;
+      }
     });
 
-    const close = () => this.sessions.delete(ws);
+    const close = () => { this.sessions.delete(ws); this.broadcastMembers(); };
     ws.addEventListener("close", close);
     ws.addEventListener("error", close);
+  }
+
+  broadcastMembers() {
+    this.broadcast(JSON.stringify({ type: "members", count: this.sessions.size, max: this.maxMembers }));
   }
 
   broadcast(data, except) {
@@ -244,11 +278,32 @@ const PAGE = `<!doctype html>
       linear-gradient(160deg, #0f1b2d 0%, #16263f 100%);
   }
   header {
-    padding: 11px 18px; display: flex; align-items: center; gap: 12px;
+    padding: 11px 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; row-gap: 8px;
     border-bottom: 1px solid rgba(255,255,255,.08); font-size: 13px;
     background: rgba(13,22,36,.5);
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   }
+  header .members {
+    display: inline-flex; align-items: center; gap: 7px;
+    color: #8ba0b8; font-variant-numeric: tabular-nums;
+  }
+  header .members .count { color: #cfe0ee; }
+  header button.plus {
+    width: 24px; height: 24px; padding: 0; display: grid; place-items: center;
+    font-size: 15px; line-height: 1; border-radius: 7px;
+  }
+  header button.plus:disabled { opacity: .35; cursor: default; }
+  header button.danger { color: #ffb4ad; border-color: rgba(248,81,73,.35); }
+  header button.danger:hover { background: rgba(248,81,73,.14); border-color: rgba(248,81,73,.6); }
+  #copyright {
+    position: fixed; right: 14px; bottom: 12px; z-index: 30;
+    font-size: 11px; color: #5f7084;
+    background: rgba(13,22,36,.6); border: 1px solid rgba(255,255,255,.07);
+    border-radius: 8px; padding: 5px 10px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  #copyright a { color: #2dd4bf; text-decoration: none; }
+  #copyright a:hover { text-decoration: underline; }
   header .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #eef3f9; letter-spacing: -.3px; }
   header .brand b { color: #2dd4bf; font-weight: 700; }
   header .brand svg { width: 20px; height: 20px; display: block; }
@@ -291,17 +346,20 @@ const PAGE = `<!doctype html>
   }
   #files.show { display: flex; }
   .chip {
-    display: flex; align-items: center; gap: 10px; max-width: 320px;
+    display: flex; flex-direction: column; gap: 7px; width: 260px;
     background: rgba(13,22,36,.7); border: 1px solid rgba(255,255,255,.1);
-    border-radius: 10px; padding: 8px 11px; font-size: 12.5px;
+    border-radius: 10px; padding: 9px 11px; font-size: 12.5px;
   }
+  .chip .row { display: flex; align-items: center; gap: 9px; }
   .chip .ic { width: 15px; height: 15px; color: #2dd4bf; flex: none; }
   .chip .ic.out { color: #8ba0b8; }
-  .chip .nm { color: #eef3f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chip .sz { color: #5f7084; flex: none; }
-  .chip a.dl, .chip .prog { color: #2dd4bf; text-decoration: none; flex: none; font-weight: 700; }
+  .chip .nm { flex: 1; color: #eef3f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip .meta { color: #5f7084; flex: none; font-variant-numeric: tabular-nums; }
+  .chip a.dl { color: #2dd4bf; text-decoration: none; flex: none; font-weight: 700; }
   .chip a.dl:hover { text-decoration: underline; }
-  .chip .prog { color: #8ba0b8; font-weight: 400; }
+  .chip .bar { height: 4px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; }
+  .chip .bar .fill { height: 100%; width: 0%; background: #2dd4bf; border-radius: 999px; transition: width .15s linear; }
+  .chip.done .bar { display: none; }
   /* --- login gate: CopyTo brand (navy gradient + locked teal accent) --- */
   #gate {
     position: fixed; inset: 0; display: flex;
@@ -459,19 +517,25 @@ const PAGE = `<!doctype html>
     </span>
     <span class="dot" id="dot"></span>
     <span id="status">connecting…</span>
+    <span class="members" title="People in this room">
+      <span class="count" id="mcount">1</span>/<span id="mmax">2</span>
+      <button class="plus" id="raise" title="Allow one more person">+</button>
+    </span>
     <span class="spacer"></span>
     <span class="ttl" id="ttl"></span>
     <span id="chars">0 chars</span>
     <button id="attach">Attach</button>
     <button id="copy">Copy all</button>
     <button id="clear">Clear</button>
+    <button id="disconnect" class="danger">Disconnect</button>
     <input id="fileInput" type="file" style="display:none" />
   </header>
   <main style="display:none" id="main">
-    <textarea id="pad" placeholder="Shared clipboard. Type or paste here. Drop a file to share it (max 5 MB)." spellcheck="false"></textarea>
+    <textarea id="pad" placeholder="Shared clipboard. Type or paste here. Drop a file to share it (max 50 MB)." spellcheck="false"></textarea>
   </main>
   <div id="files"></div>
-  <div id="drophint">Drop to share (max 5 MB)</div>
+  <div id="drophint">Drop to share (max 50 MB)</div>
+  <div id="copyright" style="display:none">© 2026 Jaba Macharashvili · <a href="https://github.com/jaba0x/copyto" target="_blank" rel="noopener">source</a></div>
 
 <script>
 (function () {
@@ -485,6 +549,10 @@ const PAGE = `<!doctype html>
   var ttl = document.getElementById("ttl");
   var errEl = document.getElementById("err");
   var filesEl = document.getElementById("files");
+  var mcount = document.getElementById("mcount");
+  var mmax = document.getElementById("mmax");
+  var raiseBtn = document.getElementById("raise");
+  var copyrightEl = document.getElementById("copyright");
 
   var ws = null, rev = 0, applyingRemote = false, password = "", sendTimer = null;
   var expiresAt = 0, ttlTimer = null, expired = false, stop = false;
@@ -506,15 +574,6 @@ const PAGE = `<!doctype html>
 
     ws.onopen = function () {
       sessionStorage.setItem("copyto_p", password);
-      gate.style.display = "none";
-      bar.style.display = "flex";
-      mainEl.style.display = "flex";
-      pad.disabled = false;
-      dot.className = "dot on";
-      status.textContent = "connected";
-      pad.focus();
-      if (ttlTimer) clearInterval(ttlTimer);
-      ttlTimer = setInterval(tick, 1000);
     };
     ws.onclose = function (e) {
       if (stop) return;
@@ -542,6 +601,21 @@ const PAGE = `<!doctype html>
         try { ws.close(); } catch (_) {}
         return;
       }
+      if (msg.type === "init") {
+        // Accepted into the room: now reveal it.
+        gate.style.display = "none";
+        bar.style.display = "flex";
+        mainEl.style.display = "flex";
+        copyrightEl.style.display = "block";
+        pad.disabled = false;
+        dot.className = "dot on";
+        status.textContent = "connected";
+        if (typeof msg.members === "number") mcount.textContent = msg.members;
+        if (typeof msg.max === "number") { mmax.textContent = msg.max; raiseBtn.disabled = msg.max >= 10; }
+        pad.focus();
+        if (ttlTimer) clearInterval(ttlTimer);
+        ttlTimer = setInterval(tick, 1000);
+      }
       if (msg.type === "init" || msg.type === "update") {
         rev = msg.rev;
         expiresAt = msg.expiresAt || 0;
@@ -558,14 +632,14 @@ const PAGE = `<!doctype html>
       }
       if (msg.type === "file-start") {
         incoming[msg.id] = { name: msg.name, mime: msg.mime, size: msg.size, total: msg.total, parts: [], got: 0 };
-        addChip(msg.id, msg.name, msg.size, "in", null);
+        addChip(msg.id, msg.name, msg.size, "in");
         return;
       }
       if (msg.type === "file-chunk") {
         var inc = incoming[msg.id];
         if (!inc) return;
         inc.parts[msg.i] = msg.data; inc.got++;
-        setChipProgress(msg.id, Math.round((inc.got / inc.total) * 100));
+        setChipPct(msg.id, Math.round((inc.got / inc.total) * 100));
         return;
       }
       if (msg.type === "file-end") {
@@ -576,12 +650,30 @@ const PAGE = `<!doctype html>
         delete incoming[msg.id];
         return;
       }
+      if (msg.type === "members") {
+        mcount.textContent = msg.count;
+        mmax.textContent = msg.max;
+        raiseBtn.disabled = msg.max >= 10;
+        return;
+      }
+      if (msg.type === "full") {
+        stop = true;
+        try { ws.close(); } catch (_) {}
+        sessionStorage.removeItem("copyto_p");
+        gate.style.display = "flex";
+        bar.style.display = "none";
+        mainEl.style.display = "none";
+        copyrightEl.style.display = "none";
+        errEl.textContent = "Room is full (" + msg.max + "/" + msg.max + "). Ask someone inside to allow one more.";
+        return;
+      }
     };
   }
 
-  // ---- attachments (chunked relay over the WebSocket, max 5 MB) ----
-  var MAX_FILE = 5 * 1024 * 1024;
-  var CHUNK = 700 * 1024; // base64 chars per chunk, under the 1 MB WS message limit
+  // ---- attachments (chunked relay over the WebSocket, max 50 MB) ----
+  var MAX_FILE = 50 * 1024 * 1024;
+  var CHUNK = 700 * 1024;              // base64 chars per chunk, under the 1 MB WS message limit
+  var BACKPRESSURE = 4 * 1024 * 1024;  // pause sending while the socket buffer is above this
   var incoming = {};
 
   function fmtSize(n) {
@@ -589,54 +681,67 @@ const PAGE = `<!doctype html>
     if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
     return (n / 1048576).toFixed(1) + " MB";
   }
-  function showFiles() { filesEl.classList.add("show"); }
   function fileIcon(dir) {
     return '<svg class="ic ' + dir + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
   }
-  function addChip(id, name, size, dir, href) {
-    showFiles();
+  // dir: "in" (downloading) or "out" (uploading)
+  function addChip(id, name, size, dir) {
+    filesEl.classList.add("show");
     var el = document.createElement("div");
     el.className = "chip"; el.id = "chip-" + id;
-    el.innerHTML = fileIcon(dir) +
-      '<span class="nm"></span>' +
-      '<span class="sz">' + fmtSize(size) + '</span>' +
-      '<span class="act"></span>';
+    el.innerHTML =
+      '<div class="row">' + fileIcon(dir) +
+        '<span class="nm"></span>' +
+        '<span class="meta">0%</span>' +
+      '</div>' +
+      '<div class="bar"><div class="fill"></div></div>';
     el.querySelector(".nm").textContent = name;
-    var act = el.querySelector(".act");
-    if (href) {
-      act.innerHTML = '<a class="dl"></a>';
-      var a = act.querySelector("a"); a.href = href; a.download = name; a.textContent = "Save";
-    } else {
-      act.innerHTML = '<span class="prog">' + (dir === "in" ? "0%" : "sent") + '</span>';
-    }
+    el._size = size;
     filesEl.appendChild(el);
+    return el;
   }
-  function setChipProgress(id, pct) {
+  function setChipPct(id, pct) {
     var el = document.getElementById("chip-" + id); if (!el) return;
-    var p = el.querySelector(".prog"); if (p) p.textContent = pct + "%";
+    el.querySelector(".fill").style.width = pct + "%";
+    var m = el.querySelector(".meta"); if (m) m.textContent = pct + "%";
   }
-  function setChipDownload(id, href, name) {
+  function finishChip(id, href, name) {
     var el = document.getElementById("chip-" + id); if (!el) return;
-    var act = el.querySelector(".act");
-    act.innerHTML = '<a class="dl"></a>';
-    var a = act.querySelector("a"); a.href = href; a.download = name; a.textContent = "Save";
+    el.classList.add("done");
+    el.querySelector(".meta").textContent = fmtSize(el._size || 0);
+    var row = el.querySelector(".row");
+    var a = document.createElement("a");
+    a.className = "dl"; a.href = href; a.download = name; a.textContent = "Save";
+    row.appendChild(a);
   }
+  function setChipDownload(id, href, name) { finishChip(id, href, name); }
+
   function sendFile(file) {
     if (!file) return;
     if (!ws || ws.readyState !== 1) return;
-    if (file.size > MAX_FILE) { flashStatus("File too large (max 5 MB)"); return; }
+    if (file.size > MAX_FILE) { flashStatus("File too large (max 50 MB)"); return; }
     var reader = new FileReader();
     reader.onload = function () {
       var url = String(reader.result);
       var b64 = url.slice(url.indexOf(",") + 1);
       var id = Math.random().toString(36).slice(2, 10);
       var total = Math.ceil(b64.length / CHUNK) || 1;
+      addChip(id, file.name, file.size, "out");
       ws.send(JSON.stringify({ type: "file-start", id: id, name: file.name, mime: file.type || "application/octet-stream", size: file.size, total: total }));
-      for (var i = 0; i < total; i++) {
-        ws.send(JSON.stringify({ type: "file-chunk", id: id, i: i, data: b64.slice(i * CHUNK, (i + 1) * CHUNK) }));
+      var i = 0;
+      function pump() {
+        if (!ws || ws.readyState !== 1) return; // disconnected mid-send
+        while (i < total) {
+          if (ws.bufferedAmount > BACKPRESSURE) { setTimeout(pump, 40); return; }
+          ws.send(JSON.stringify({ type: "file-chunk", id: id, i: i, data: b64.slice(i * CHUNK, (i + 1) * CHUNK) }));
+          i++;
+          setChipPct(id, Math.round((i / total) * 100));
+          if (i % 3 === 0) { setTimeout(pump, 0); return; } // yield so the bar paints
+        }
+        ws.send(JSON.stringify({ type: "file-end", id: id }));
+        finishChip(id, url, file.name); // keep a local Save link for the sender too
       }
-      ws.send(JSON.stringify({ type: "file-end", id: id }));
-      addChip(id, file.name, file.size, "out", url); // sender keeps a local copy to re-download
+      pump();
     };
     reader.readAsDataURL(file);
   }
@@ -663,6 +768,25 @@ const PAGE = `<!doctype html>
   document.getElementById("clear").onclick = function () {
     pad.value = ""; updateCount();
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "update", text: "" }));
+  };
+
+  raiseBtn.onclick = function () {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "raise-limit" }));
+  };
+  document.getElementById("disconnect").onclick = function () {
+    stop = true;
+    try { ws && ws.close(); } catch (_) {}
+    sessionStorage.removeItem("copyto_p");
+    if (ttlTimer) clearInterval(ttlTimer);
+    bar.style.display = "none";
+    mainEl.style.display = "none";
+    copyrightEl.style.display = "none";
+    filesEl.innerHTML = ""; filesEl.classList.remove("show");
+    pad.value = ""; updateCount();
+    errEl.textContent = "";
+    document.getElementById("pass").value = "";
+    gate.style.display = "flex";
+    document.getElementById("pass").focus();
   };
 
   var fileInput = document.getElementById("fileInput");
