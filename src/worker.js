@@ -185,6 +185,13 @@ export class Room {
           }),
           ws
         );
+        return;
+      }
+      // File transfer: relay chunks to the other clients, never stored server-side.
+      if (msg.type === "file-start" || msg.type === "file-chunk" || msg.type === "file-end") {
+        if (evt.data.length > 1_000_000) return; // per-message guard (chunks are ~700 KB)
+        this.broadcast(evt.data, ws);
+        return;
       }
     });
 
@@ -230,26 +237,71 @@ const PAGE = `<!doctype html>
   * { box-sizing: border-box; }
   body {
     margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    background: #0f1115; color: #e6e6e6; height: 100vh;
+    color: #e6e6e6; min-height: 100dvh;
     display: flex; flex-direction: column;
+    background:
+      radial-gradient(120% 70% at 85% 0%, rgba(45,212,191,.08), transparent 48%),
+      linear-gradient(160deg, #0f1b2d 0%, #16263f 100%);
   }
   header {
-    padding: 10px 16px; display: flex; align-items: center; gap: 12px;
-    border-bottom: 1px solid #262a33; font-size: 13px;
+    padding: 11px 18px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid rgba(255,255,255,.08); font-size: 13px;
+    background: rgba(13,22,36,.5);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   }
+  header .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #eef3f9; letter-spacing: -.3px; }
+  header .brand b { color: #2dd4bf; font-weight: 700; }
+  header .brand svg { width: 20px; height: 20px; display: block; }
   header .dot { width: 9px; height: 9px; border-radius: 50%; background: #e0b341; transition: background .2s; }
-  header .dot.on { background: #3fb950; }
+  header .dot.on { background: #2dd4bf; box-shadow: 0 0 8px rgba(45,212,191,.7); }
   header .dot.off { background: #f85149; }
+  header #status { color: #8ba0b8; }
   header .spacer { flex: 1; }
-  header .ttl { color: #9fb2c8; font-variant-numeric: tabular-nums; }
-  header button { background: #21262d; color: #e6e6e6; border: 1px solid #30363d; border-radius: 6px; padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer; }
-  header button:hover { background: #30363d; }
-  textarea {
-    flex: 1; width: 100%; border: 0; outline: 0; resize: none;
-    background: #0f1115; color: #e6e6e6; padding: 16px;
-    font: inherit; font-size: 15px; line-height: 1.5;
+  header .ttl { color: #8ba0b8; font-variant-numeric: tabular-nums; }
+  header #chars { color: #5f7084; }
+  header button {
+    background: rgba(255,255,255,.05); color: #cfe0ee; border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px; padding: 6px 11px; font: inherit; font-size: 12px; cursor: pointer;
+    transition: background .15s, border-color .15s;
   }
+  header button:hover { background: rgba(255,255,255,.1); border-color: rgba(45,212,191,.4); }
+  header button:active { transform: scale(.97); }
+  main { flex: 1; display: flex; padding: 16px 18px; min-height: 0; }
+  textarea {
+    flex: 1; width: 100%; border: 1px solid rgba(255,255,255,.1); outline: 0; resize: none;
+    background: rgba(8,15,26,.55); color: #eef3f9; padding: 16px; border-radius: 14px;
+    font: inherit; font-size: 15px; line-height: 1.6;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  textarea:focus { border-color: rgba(45,212,191,.55); box-shadow: 0 0 0 3px rgba(45,212,191,.16); }
   textarea:disabled { opacity: .6; }
+  /* drag-over state */
+  body.dragging textarea { border-color: #2dd4bf; box-shadow: 0 0 0 3px rgba(45,212,191,.28); }
+  #drophint {
+    position: fixed; inset: 0; z-index: 40; display: none;
+    align-items: center; justify-content: center; pointer-events: none;
+    background: rgba(9,16,26,.55); backdrop-filter: blur(3px);
+    color: #2dd4bf; font-size: 18px; letter-spacing: .02em;
+  }
+  body.dragging #drophint { display: flex; }
+  /* attachment strip */
+  #files {
+    display: none; flex-wrap: wrap; gap: 8px;
+    padding: 0 18px 16px;
+  }
+  #files.show { display: flex; }
+  .chip {
+    display: flex; align-items: center; gap: 10px; max-width: 320px;
+    background: rgba(13,22,36,.7); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px; padding: 8px 11px; font-size: 12.5px;
+  }
+  .chip .ic { width: 15px; height: 15px; color: #2dd4bf; flex: none; }
+  .chip .ic.out { color: #8ba0b8; }
+  .chip .nm { color: #eef3f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip .sz { color: #5f7084; flex: none; }
+  .chip a.dl, .chip .prog { color: #2dd4bf; text-decoration: none; flex: none; font-weight: 700; }
+  .chip a.dl:hover { text-decoration: underline; }
+  .chip .prog { color: #8ba0b8; font-weight: 400; }
   /* --- login gate: CopyTo brand (navy gradient + locked teal accent) --- */
   #gate {
     position: fixed; inset: 0; display: flex;
@@ -396,26 +448,43 @@ const PAGE = `<!doctype html>
   </div>
 
   <header style="display:none" id="bar">
+    <span class="brand">
+      <svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect width="256" height="256" rx="56" fill="#0f1b2d"/>
+        <rect x="26" y="80" width="84" height="96" rx="16" fill="#2dd4bf"/>
+        <rect x="146" y="80" width="84" height="96" rx="16" fill="#2dd4bf"/>
+        <rect x="110" y="124" width="36" height="8" rx="4" fill="#2dd4bf" opacity=".4"/>
+      </svg>
+      <span class="wm">Copy<b>To</b></span>
+    </span>
     <span class="dot" id="dot"></span>
     <span id="status">connecting…</span>
     <span class="spacer"></span>
     <span class="ttl" id="ttl"></span>
     <span id="chars">0 chars</span>
+    <button id="attach">Attach</button>
     <button id="copy">Copy all</button>
     <button id="clear">Clear</button>
+    <input id="fileInput" type="file" style="display:none" />
   </header>
-  <textarea id="pad" style="display:none" placeholder="Shared clipboard. Type or paste here." spellcheck="false"></textarea>
+  <main style="display:none" id="main">
+    <textarea id="pad" placeholder="Shared clipboard. Type or paste here. Drop a file to share it (max 5 MB)." spellcheck="false"></textarea>
+  </main>
+  <div id="files"></div>
+  <div id="drophint">Drop to share (max 5 MB)</div>
 
 <script>
 (function () {
   var pad = document.getElementById("pad");
   var bar = document.getElementById("bar");
+  var mainEl = document.getElementById("main");
   var gate = document.getElementById("gate");
   var dot = document.getElementById("dot");
   var status = document.getElementById("status");
   var chars = document.getElementById("chars");
   var ttl = document.getElementById("ttl");
   var errEl = document.getElementById("err");
+  var filesEl = document.getElementById("files");
 
   var ws = null, rev = 0, applyingRemote = false, password = "", sendTimer = null;
   var expiresAt = 0, ttlTimer = null, expired = false, stop = false;
@@ -439,7 +508,7 @@ const PAGE = `<!doctype html>
       sessionStorage.setItem("copyto_p", password);
       gate.style.display = "none";
       bar.style.display = "flex";
-      pad.style.display = "block";
+      mainEl.style.display = "flex";
       pad.disabled = false;
       dot.className = "dot on";
       status.textContent = "connected";
@@ -485,8 +554,95 @@ const PAGE = `<!doctype html>
           try { pad.setSelectionRange(s, en); } catch (_) {}
         }
         updateCount();
+        return;
+      }
+      if (msg.type === "file-start") {
+        incoming[msg.id] = { name: msg.name, mime: msg.mime, size: msg.size, total: msg.total, parts: [], got: 0 };
+        addChip(msg.id, msg.name, msg.size, "in", null);
+        return;
+      }
+      if (msg.type === "file-chunk") {
+        var inc = incoming[msg.id];
+        if (!inc) return;
+        inc.parts[msg.i] = msg.data; inc.got++;
+        setChipProgress(msg.id, Math.round((inc.got / inc.total) * 100));
+        return;
+      }
+      if (msg.type === "file-end") {
+        var f = incoming[msg.id];
+        if (!f) return;
+        var href = "data:" + (f.mime || "application/octet-stream") + ";base64," + f.parts.join("");
+        setChipDownload(msg.id, href, f.name);
+        delete incoming[msg.id];
+        return;
       }
     };
+  }
+
+  // ---- attachments (chunked relay over the WebSocket, max 5 MB) ----
+  var MAX_FILE = 5 * 1024 * 1024;
+  var CHUNK = 700 * 1024; // base64 chars per chunk, under the 1 MB WS message limit
+  var incoming = {};
+
+  function fmtSize(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1048576).toFixed(1) + " MB";
+  }
+  function showFiles() { filesEl.classList.add("show"); }
+  function fileIcon(dir) {
+    return '<svg class="ic ' + dir + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+  }
+  function addChip(id, name, size, dir, href) {
+    showFiles();
+    var el = document.createElement("div");
+    el.className = "chip"; el.id = "chip-" + id;
+    el.innerHTML = fileIcon(dir) +
+      '<span class="nm"></span>' +
+      '<span class="sz">' + fmtSize(size) + '</span>' +
+      '<span class="act"></span>';
+    el.querySelector(".nm").textContent = name;
+    var act = el.querySelector(".act");
+    if (href) {
+      act.innerHTML = '<a class="dl"></a>';
+      var a = act.querySelector("a"); a.href = href; a.download = name; a.textContent = "Save";
+    } else {
+      act.innerHTML = '<span class="prog">' + (dir === "in" ? "0%" : "sent") + '</span>';
+    }
+    filesEl.appendChild(el);
+  }
+  function setChipProgress(id, pct) {
+    var el = document.getElementById("chip-" + id); if (!el) return;
+    var p = el.querySelector(".prog"); if (p) p.textContent = pct + "%";
+  }
+  function setChipDownload(id, href, name) {
+    var el = document.getElementById("chip-" + id); if (!el) return;
+    var act = el.querySelector(".act");
+    act.innerHTML = '<a class="dl"></a>';
+    var a = act.querySelector("a"); a.href = href; a.download = name; a.textContent = "Save";
+  }
+  function sendFile(file) {
+    if (!file) return;
+    if (!ws || ws.readyState !== 1) return;
+    if (file.size > MAX_FILE) { flashStatus("File too large (max 5 MB)"); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var url = String(reader.result);
+      var b64 = url.slice(url.indexOf(",") + 1);
+      var id = Math.random().toString(36).slice(2, 10);
+      var total = Math.ceil(b64.length / CHUNK) || 1;
+      ws.send(JSON.stringify({ type: "file-start", id: id, name: file.name, mime: file.type || "application/octet-stream", size: file.size, total: total }));
+      for (var i = 0; i < total; i++) {
+        ws.send(JSON.stringify({ type: "file-chunk", id: id, i: i, data: b64.slice(i * CHUNK, (i + 1) * CHUNK) }));
+      }
+      ws.send(JSON.stringify({ type: "file-end", id: id }));
+      addChip(id, file.name, file.size, "out", url); // sender keeps a local copy to re-download
+    };
+    reader.readAsDataURL(file);
+  }
+  function flashStatus(t) {
+    var prev = status.textContent; status.textContent = t;
+    setTimeout(function () { if (status.textContent === t) status.textContent = prev; }, 2500);
   }
 
   function updateCount() { chars.textContent = pad.value.length + " chars"; }
@@ -508,6 +664,35 @@ const PAGE = `<!doctype html>
     pad.value = ""; updateCount();
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "update", text: "" }));
   };
+
+  var fileInput = document.getElementById("fileInput");
+  document.getElementById("attach").onclick = function () { fileInput.click(); };
+  fileInput.onchange = function () {
+    if (fileInput.files && fileInput.files[0]) sendFile(fileInput.files[0]);
+    fileInput.value = "";
+  };
+
+  // drag & drop onto the page (only while in a room)
+  var dragDepth = 0;
+  window.addEventListener("dragenter", function (e) {
+    if (gate.style.display !== "none") return;
+    e.preventDefault(); dragDepth++; document.body.classList.add("dragging");
+  });
+  window.addEventListener("dragover", function (e) { if (gate.style.display === "none") e.preventDefault(); });
+  window.addEventListener("dragleave", function () {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) document.body.classList.remove("dragging");
+  });
+  window.addEventListener("drop", function (e) {
+    if (gate.style.display !== "none") return;
+    e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) sendFile(e.dataTransfer.files[0]);
+  });
+  // paste a file straight into the pad
+  pad.addEventListener("paste", function (e) {
+    var items = e.clipboardData && e.clipboardData.files;
+    if (items && items.length) { e.preventDefault(); sendFile(items[0]); }
+  });
 
   function doEnter() {
     password = document.getElementById("pass").value;
