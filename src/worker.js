@@ -296,14 +296,12 @@ const PAGE = `<!doctype html>
   header button.danger { color: #ffb4ad; border-color: rgba(248,81,73,.35); }
   header button.danger:hover { background: rgba(248,81,73,.14); border-color: rgba(248,81,73,.6); }
   #copyright {
-    position: fixed; right: 14px; bottom: 12px; z-index: 30;
-    font-size: 11px; color: #5f7084;
-    background: rgba(13,22,36,.6); border: 1px solid rgba(255,255,255,.07);
-    border-radius: 8px; padding: 5px 10px;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    position: fixed; right: 16px; bottom: 11px; z-index: 30;
+    font-size: 11px; color: rgba(143,160,184,.5); letter-spacing: .01em;
+    pointer-events: none;
   }
-  #copyright a { color: #2dd4bf; text-decoration: none; }
-  #copyright a:hover { text-decoration: underline; }
+  #copyright a { color: rgba(45,212,191,.7); text-decoration: none; pointer-events: auto; }
+  #copyright a:hover { color: #2dd4bf; text-decoration: underline; }
   header .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #eef3f9; letter-spacing: -.3px; }
   header .brand b { color: #2dd4bf; font-weight: 700; }
   header .brand svg { width: 20px; height: 20px; display: block; }
