@@ -258,7 +258,24 @@ const PAGE = `<!doctype html>
       radial-gradient(120% 90% at 18% 0%, rgba(45,212,191,.14), transparent 46%),
       linear-gradient(140deg, #0f1b2d 0%, #16263f 100%);
   }
+  #gate .bg { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  #gate .bg .line {
+    position: absolute; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(45,212,191,.10) 20%, rgba(45,212,191,.10) 80%, transparent);
+  }
+  #gate .bg .line::after {
+    content: ""; position: absolute; top: 50%; left: 0; width: 120px; height: 2px;
+    transform: translate(-140px, -50%);
+    background: linear-gradient(90deg, transparent, rgba(45,212,191,.9), transparent);
+    box-shadow: 0 0 10px 1px rgba(45,212,191,.55);
+    animation: pkt-fly var(--dur, 9s) linear var(--delay, 0s) infinite;
+  }
+  @keyframes pkt-fly {
+    0% { transform: translate(-140px, -50%); }
+    100% { transform: translate(calc(100vw + 140px), -50%); }
+  }
   #gate .card {
+    position: relative; z-index: 1;
     width: 100%; max-width: 360px;
     display: flex; flex-direction: column; align-items: center; gap: 18px;
     padding: 34px 30px 26px;
@@ -321,11 +338,20 @@ const PAGE = `<!doctype html>
   @media (prefers-reduced-motion: reduce) {
     #gate .card { animation: none; }
     .pkt { animation: none; opacity: 1; }
+    #gate .bg .line::after { animation: none; opacity: 0; }
   }
 </style>
 </head>
 <body>
   <div id="gate">
+    <div class="bg" aria-hidden="true">
+      <div class="line" style="top:14%; --dur:11s; --delay:0s"></div>
+      <div class="line" style="top:29%; --dur:8s; --delay:2.4s"></div>
+      <div class="line" style="top:43%; --dur:13s; --delay:1.2s"></div>
+      <div class="line" style="top:61%; --dur:9.5s; --delay:3.6s"></div>
+      <div class="line" style="top:74%; --dur:12s; --delay:.8s"></div>
+      <div class="line" style="top:88%; --dur:7.5s; --delay:4.2s"></div>
+    </div>
     <div class="card">
       <svg class="logo" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" aria-label="CopyTo logo">
         <defs>
