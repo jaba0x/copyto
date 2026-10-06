@@ -16,6 +16,14 @@ class_name = "Room"
 name = "LIMITERS"
 class_name = "IpLimiter"
 
+# Cloudflare edge rate limiting: throttle WebSocket connection attempts per IP
+# before they reach the room logic (blunts rapid brute-force bursts).
+[[unsafe.bindings]]
+name = "WS_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]

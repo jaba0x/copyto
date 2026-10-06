@@ -11,7 +11,6 @@
 
 const ROOM_TTL_MS = 60 * 60 * 1000; // 1 hour
 const MAX_ROOMS_PER_IP = 5;
-const MIN_PASSWORD_LEN = 6;
 const DEFAULT_MAX_MEMBERS = 2;  // a room starts as a 2-person room
 const HARD_MAX_MEMBERS = 10;    // ceiling even after members raise the limit
 
@@ -20,12 +19,24 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/ws") {
-      const pass = url.searchParams.get("p") || "";
-      if (pass.length < MIN_PASSWORD_LEN) {
-        return new Response("Password too short", { status: 400 });
-      }
       const ip = request.headers.get("CF-Connecting-IP") || "0.0.0.0";
-      const roomKey = await sha256hex(pass);
+
+      // The room key is the client-side SHA-256 of the password, carried in the
+      // WebSocket subprotocol header (never in the URL, so it can't leak through
+      // URL logs, history or Referer). The raw password never leaves the browser.
+      const roomKey = (request.headers.get("Sec-WebSocket-Protocol") || "").trim();
+      if (!/^[0-9a-f]{64}$/.test(roomKey)) {
+        return new Response("Bad room key", { status: 400 });
+      }
+
+      // Edge rate limit: cap connection attempts per IP (blunts fast brute-force).
+      if (env.WS_LIMITER) {
+        const { success } = await env.WS_LIMITER.limit({ key: ip });
+        if (!success) {
+          console.log(`[rate-limit] ip=${ip} too many connection attempts`);
+          return new Response("Too many attempts. Slow down.", { status: 429 });
+        }
+      }
 
       // Per-IP room-count check before touching the room.
       const limiter = env.LIMITERS.get(env.LIMITERS.idFromName("ip:" + ip));
@@ -59,11 +70,6 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 };
-
-async function sha256hex(s) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 // Per-IP room counter. Keeps a map of roomKey -> firstSeen(ms), pruned to the
 // last hour, and refuses a new key once the IP holds MAX_ROOMS_PER_IP.
@@ -159,7 +165,10 @@ export class Room {
     await this.ensureRoom();
     const pair = new WebSocketPair();
     this.handleSession(pair[1]);
-    return new Response(null, { status: 101, webSocket: pair[0] });
+    // Echo the subprotocol (the room key) so the browser completes the handshake.
+    const proto = request.headers.get("Sec-WebSocket-Protocol");
+    const headers = proto ? { "Sec-WebSocket-Protocol": proto } : undefined;
+    return new Response(null, { status: 101, webSocket: pair[0], headers });
   }
 
   handleSession(ws) {
@@ -438,7 +447,9 @@ const PAGE = `<!doctype html>
   }
   #gate button.enter:hover { background: #45e0cd; }
   #gate button.enter:active { transform: scale(.985); }
-  #gate .hint { font-size: 12px; color: #7488a0; text-align: center; line-height: 1.5; }
+  #gate .hint { font-size: 12px; color: #7488a0; text-align: center; line-height: 1.7; }
+  #gate .genlink { background: none; border: 0; padding: 0; font: inherit; font-size: 12px; color: #2dd4bf; cursor: pointer; }
+  #gate .genlink:hover { text-decoration: underline; }
   #gate .err { color: #ff6b63; font-size: 12.5px; min-height: 16px; text-align: center; line-height: 1.45; }
   #gate .foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5f7084; }
   #gate .foot a { color: #2dd4bf; text-decoration: none; opacity: .9; }
@@ -504,7 +515,7 @@ const PAGE = `<!doctype html>
       </div>
       <button class="enter" id="enter">Enter room</button>
       <div class="err" id="err"></div>
-      <div class="hint">Type the same password on both devices to share a room. Rooms last one hour.</div>
+      <div class="hint">Type the same password on both devices to share a room. Rooms last one hour.<br><button type="button" class="genlink" id="gen">Generate a strong password</button></div>
       <div class="foot">
         <a href="https://github.com/jaba0x/copyto" target="_blank" rel="noopener">github.com/jaba0x/copyto</a>
         <span class="sep">/</span>
@@ -587,10 +598,26 @@ const PAGE = `<!doctype html>
     ttl.textContent = fmt(expiresAt - Date.now());
   }
 
-  function connect() {
-    var proto = location.protocol === "https:" ? "wss:" : "ws:";
-    ws = new WebSocket(proto + "//" + location.host + "/ws?p=" + encodeURIComponent(password));
+  // SHA-256 of the password, hex. Computed in the browser so the raw password
+  // never leaves the device; the hash is the room key.
+  function sha256hex(str) {
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(str)).then(function (buf) {
+      var b = new Uint8Array(buf), h = "";
+      for (var i = 0; i < b.length; i++) h += b[i].toString(16).padStart(2, "0");
+      return h;
+    });
+  }
 
+  function connect() {
+    sha256hex(password).then(function (key) {
+      var proto = location.protocol === "https:" ? "wss:" : "ws:";
+      // The key travels in the WebSocket subprotocol, not the URL.
+      ws = new WebSocket(proto + "//" + location.host + "/ws", [key]);
+      wire();
+    });
+  }
+
+  function wire() {
     ws.onopen = function () {
       sessionStorage.setItem("copyto_p", password);
     };
@@ -856,6 +883,21 @@ const PAGE = `<!doctype html>
     passEl.type = showing ? "password" : "text";
     toggleEl.setAttribute("aria-label", showing ? "Show password" : "Hide password");
     toggleEl.style.color = showing ? "" : "#2dd4bf";
+    passEl.focus();
+  };
+
+  var genEl = document.getElementById("gen");
+  if (genEl) genEl.onclick = function () {
+    // 20 chars from a crypto RNG over an unambiguous alphabet (~117 bits).
+    var alpha = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    var r = new Uint32Array(20), out = "";
+    crypto.getRandomValues(r);
+    for (var i = 0; i < 20; i++) out += alpha[r[i] % alpha.length];
+    passEl.value = out;
+    passEl.type = "text"; // reveal so it can be copied
+    if (toggleEl) { toggleEl.setAttribute("aria-label", "Hide password"); toggleEl.style.color = "#2dd4bf"; }
+    if (navigator.clipboard) navigator.clipboard.writeText(out).catch(function () {});
+    errEl.textContent = "";
     passEl.focus();
   };
 
