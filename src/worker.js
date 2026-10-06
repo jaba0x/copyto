@@ -250,44 +250,123 @@ const PAGE = `<!doctype html>
     font: inherit; font-size: 15px; line-height: 1.5;
   }
   textarea:disabled { opacity: .6; }
+  /* --- login gate: CopyTo brand (navy gradient + locked teal accent) --- */
   #gate {
-    position: fixed; inset: 0; background: #0f1115; display: flex;
-    align-items: center; justify-content: center; flex-direction: column; gap: 14px; padding: 20px;
+    position: fixed; inset: 0; display: flex;
+    align-items: center; justify-content: center; padding: 24px;
+    background:
+      radial-gradient(120% 90% at 18% 0%, rgba(45,212,191,.14), transparent 46%),
+      linear-gradient(140deg, #0f1b2d 0%, #16263f 100%);
   }
-  #gate .logo { width: 76px; height: 76px; }
-  #gate .mark { font-size: 18px; letter-spacing: 2px; margin-top: 2px; }
-  #gate input { background: #161b22; color: #e6e6e6; border: 1px solid #30363d; border-radius: 6px; padding: 10px 12px; font: inherit; font-size: 15px; width: 280px; }
-  #gate button { background: #238636; color: #fff; border: 0; border-radius: 6px; padding: 10px 18px; font: inherit; cursor: pointer; }
-  #gate .hint { color: #6e7b8c; font-size: 12px; }
-  #gate .err { color: #f85149; font-size: 13px; min-height: 16px; text-align: center; max-width: 320px; }
-  #gate a.repo { color: #2dd4bf; font-size: 12px; text-decoration: none; opacity: .85; margin-top: 6px; }
-  #gate a.repo:hover { text-decoration: underline; }
+  #gate .card {
+    width: 100%; max-width: 360px;
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+    padding: 34px 30px 26px;
+    background: rgba(13, 22, 36, .66);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 24px 70px rgba(0,0,0,.45);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+  #gate .logo { width: 64px; height: 64px; }
+  #gate .head { text-align: center; }
+  #gate .mark { font-size: 24px; font-weight: 700; letter-spacing: -.5px; color: #eef3f9; }
+  #gate .mark b { color: #2dd4bf; font-weight: 700; }
+  #gate .sub { margin-top: 4px; font-size: 12.5px; color: #8ba0b8; }
+  #gate .field { width: 100%; display: flex; flex-direction: column; gap: 7px; }
+  #gate label { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #8ba0b8; }
+  #gate .input-wrap { position: relative; }
+  #gate input {
+    width: 100%; background: rgba(8,15,26,.7); color: #eef3f9;
+    border: 1px solid rgba(255,255,255,.12); border-radius: 10px;
+    padding: 12px 44px 12px 13px; font: inherit; font-size: 15px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  #gate input::placeholder { color: #5f7084; }
+  #gate input:focus {
+    outline: 0; border-color: #2dd4bf;
+    box-shadow: 0 0 0 3px rgba(45,212,191,.22);
+  }
+  #gate .toggle {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    width: 32px; height: 32px; display: grid; place-items: center;
+    background: transparent; border: 0; border-radius: 8px; cursor: pointer;
+    color: #8ba0b8; padding: 0;
+  }
+  #gate .toggle:hover { color: #cfe0ee; background: rgba(255,255,255,.06); }
+  #gate .toggle svg { width: 18px; height: 18px; display: block; }
+  #gate button.enter {
+    width: 100%; background: #2dd4bf; color: #082018; font-weight: 700;
+    border: 0; border-radius: 10px; padding: 12px 18px; font: inherit; font-weight: 700;
+    cursor: pointer; transition: background .15s, transform .06s;
+  }
+  #gate button.enter:hover { background: #45e0cd; }
+  #gate button.enter:active { transform: scale(.985); }
+  #gate .hint { font-size: 12px; color: #7488a0; text-align: center; line-height: 1.5; }
+  #gate .err { color: #ff6b63; font-size: 12.5px; min-height: 16px; text-align: center; line-height: 1.45; }
+  #gate .foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5f7084; }
+  #gate .foot a { color: #2dd4bf; text-decoration: none; opacity: .9; }
+  #gate .foot a:hover { text-decoration: underline; }
+  #gate .foot .sep { opacity: .4; }
+  #gate .card { animation: gate-in .5s cubic-bezier(.16,1,.3,1) both; }
+  @keyframes gate-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .pkt { animation: pkt-move 2.6s cubic-bezier(.45,0,.55,1) infinite; }
+  .pkt.b { animation-delay: 1.3s; }
+  @keyframes pkt-move {
+    0% { transform: translateX(0); opacity: 0; }
+    15% { opacity: 1; } 45% { opacity: 1; }
+    55%, 100% { transform: translateX(44px); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #gate .card { animation: none; }
+    .pkt { animation: none; opacity: 1; }
+  }
 </style>
 </head>
 <body>
   <div id="gate">
-    <svg class="logo" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" aria-label="CopyTo logo">
-      <defs>
-        <linearGradient id="lbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f1b2d"/><stop offset="1" stop-color="#16263f"/></linearGradient>
-        <linearGradient id="lscr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#14a597"/></linearGradient>
-      </defs>
-      <rect width="256" height="256" rx="56" fill="url(#lbg)"/>
-      <rect x="26" y="80" width="84" height="96" rx="16" fill="url(#lscr)"/>
-      <rect x="40" y="100" width="56" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
-      <rect x="40" y="118" width="44" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
-      <rect x="40" y="136" width="52" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
-      <rect x="146" y="80" width="84" height="96" rx="16" fill="url(#lscr)"/>
-      <rect x="160" y="100" width="56" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
-      <rect x="160" y="118" width="44" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
-      <rect x="160" y="136" width="52" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
-      <rect x="110" y="124" width="36" height="8" rx="4" fill="#2dd4bf" opacity=".35"/>
-    </svg>
-    <div class="mark">COPYTO</div>
-    <input id="pass" type="password" placeholder="room password (6+ chars)" autocomplete="off" />
-    <button id="enter">Enter</button>
-    <div class="hint">Same password = same room. Rooms last 1 hour.</div>
-    <div class="err" id="err"></div>
-    <a class="repo" href="https://github.com/jaba0x/copyto" target="_blank" rel="noopener">github.com/jaba0x/copyto</a>
+    <div class="card">
+      <svg class="logo" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" aria-label="CopyTo logo">
+        <defs>
+          <linearGradient id="lbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f1b2d"/><stop offset="1" stop-color="#16263f"/></linearGradient>
+          <linearGradient id="lscr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#14a597"/></linearGradient>
+        </defs>
+        <rect width="256" height="256" rx="56" fill="url(#lbg)"/>
+        <rect x="26" y="80" width="84" height="96" rx="16" fill="url(#lscr)"/>
+        <rect x="40" y="100" width="56" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
+        <rect x="40" y="118" width="44" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
+        <rect x="40" y="136" width="52" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
+        <rect x="146" y="80" width="84" height="96" rx="16" fill="url(#lscr)"/>
+        <rect x="160" y="100" width="56" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
+        <rect x="160" y="118" width="44" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
+        <rect x="160" y="136" width="52" height="8" rx="4" fill="#0f1b2d" opacity=".5"/>
+        <rect x="110" y="124" width="36" height="8" rx="4" fill="#2dd4bf" opacity=".35"/>
+        <circle class="pkt" cx="112" cy="128" r="6" fill="#ffd35a"/>
+        <circle class="pkt b" cx="112" cy="128" r="6" fill="#ffd35a"/>
+      </svg>
+      <div class="head">
+        <div class="mark">Copy<b>To</b></div>
+        <div class="sub">Real-time shared clipboard</div>
+      </div>
+      <div class="field">
+        <label for="pass">Room password</label>
+        <div class="input-wrap">
+          <input id="pass" type="password" placeholder="6+ characters" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          <button type="button" class="toggle" id="toggle" aria-label="Show password">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <button class="enter" id="enter">Enter room</button>
+      <div class="err" id="err"></div>
+      <div class="hint">Type the same password on both devices to share a room. Rooms last one hour.</div>
+      <div class="foot">
+        <a href="https://github.com/jaba0x/copyto" target="_blank" rel="noopener">github.com/jaba0x/copyto</a>
+        <span class="sep">/</span>
+        <span>copy.jaba.ge</span>
+      </div>
+    </div>
   </div>
 
   <header style="display:none" id="bar">
@@ -299,7 +378,7 @@ const PAGE = `<!doctype html>
     <button id="copy">Copy all</button>
     <button id="clear">Clear</button>
   </header>
-  <textarea id="pad" style="display:none" placeholder="Shared clipboard — type or paste here" spellcheck="false"></textarea>
+  <textarea id="pad" style="display:none" placeholder="Shared clipboard. Type or paste here." spellcheck="false"></textarea>
 
 <script>
 (function () {
@@ -361,7 +440,7 @@ const PAGE = `<!doctype html>
         expired = true; stop = true;
         sessionStorage.removeItem("copyto_p");
         dot.className = "dot off";
-        status.textContent = "room expired — reload to start a new one";
+        status.textContent = "room expired. reload to start a new one";
         ttl.textContent = "";
         pad.disabled = true;
         if (ttlTimer) clearInterval(ttlTimer);
@@ -415,6 +494,16 @@ const PAGE = `<!doctype html>
   document.getElementById("pass").addEventListener("keydown", function (e) {
     if (e.key === "Enter") doEnter();
   });
+
+  var passEl = document.getElementById("pass");
+  var toggleEl = document.getElementById("toggle");
+  if (toggleEl) toggleEl.onclick = function () {
+    var showing = passEl.type === "text";
+    passEl.type = showing ? "password" : "text";
+    toggleEl.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+    toggleEl.style.color = showing ? "" : "#2dd4bf";
+    passEl.focus();
+  };
 
   var saved = sessionStorage.getItem("copyto_p");
   if (saved) { document.getElementById("pass").value = saved; password = saved; connect(); }
