@@ -223,6 +223,16 @@ export class Room {
         }
         return;
       }
+      // Any member may lower the limit, but never below who is already here.
+      if (msg.type === "lower-limit") {
+        const floor = Math.max(this.sessions.size, 1);
+        if (this.maxMembers > floor) {
+          this.maxMembers--;
+          await this.state.storage.put("maxMembers", this.maxMembers);
+          this.broadcastMembers();
+        }
+        return;
+      }
     });
 
     const close = () => { this.sessions.delete(ws); this.broadcastMembers(); };
@@ -516,6 +526,7 @@ const PAGE = `<!doctype html>
     <span class="dot" id="dot"></span>
     <span id="status">connecting…</span>
     <span class="members" title="People in this room">
+      <button class="plus" id="lower" title="Allow one fewer person">&minus;</button>
       <span class="count" id="mcount">1</span>/<span id="mmax">2</span>
       <button class="plus" id="raise" title="Allow one more person">+</button>
     </span>
@@ -550,7 +561,17 @@ const PAGE = `<!doctype html>
   var mcount = document.getElementById("mcount");
   var mmax = document.getElementById("mmax");
   var raiseBtn = document.getElementById("raise");
+  var lowerBtn = document.getElementById("lower");
   var copyrightEl = document.getElementById("copyright");
+
+  function setMembers(count, max) {
+    if (typeof count === "number") mcount.textContent = count;
+    if (typeof max === "number") mmax.textContent = max;
+    var c = parseInt(mcount.textContent, 10) || 1;
+    var m = parseInt(mmax.textContent, 10) || 2;
+    raiseBtn.disabled = m >= 10;
+    lowerBtn.disabled = m <= Math.max(c, 1);
+  }
 
   var ws = null, rev = 0, applyingRemote = false, password = "", sendTimer = null;
   var expiresAt = 0, ttlTimer = null, expired = false, stop = false;
@@ -608,8 +629,7 @@ const PAGE = `<!doctype html>
         pad.disabled = false;
         dot.className = "dot on";
         status.textContent = "connected";
-        if (typeof msg.members === "number") mcount.textContent = msg.members;
-        if (typeof msg.max === "number") { mmax.textContent = msg.max; raiseBtn.disabled = msg.max >= 10; }
+        setMembers(msg.members, msg.max);
         pad.focus();
         if (ttlTimer) clearInterval(ttlTimer);
         ttlTimer = setInterval(tick, 1000);
@@ -649,9 +669,7 @@ const PAGE = `<!doctype html>
         return;
       }
       if (msg.type === "members") {
-        mcount.textContent = msg.count;
-        mmax.textContent = msg.max;
-        raiseBtn.disabled = msg.max >= 10;
+        setMembers(msg.count, msg.max);
         return;
       }
       if (msg.type === "full") {
@@ -770,6 +788,9 @@ const PAGE = `<!doctype html>
 
   raiseBtn.onclick = function () {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "raise-limit" }));
+  };
+  lowerBtn.onclick = function () {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "lower-limit" }));
   };
   document.getElementById("disconnect").onclick = function () {
     stop = true;
