@@ -450,6 +450,12 @@ const PAGE = `<!doctype html>
   #gate .hint { font-size: 12px; color: #7488a0; text-align: center; line-height: 1.7; }
   #gate .genlink { background: none; border: 0; padding: 0; font: inherit; font-size: 12px; color: #2dd4bf; cursor: pointer; }
   #gate .genlink:hover { text-decoration: underline; }
+  #gate .bloglogo {
+    position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
+    z-index: 2; opacity: .45; transition: opacity .15s;
+  }
+  #gate .bloglogo:hover { opacity: .85; }
+  #gate .bloglogo img { height: 28px; width: auto; display: block; }
   #gate .err { color: #ff6b63; font-size: 12.5px; min-height: 16px; text-align: center; line-height: 1.45; }
   #gate .foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #5f7084; }
   #gate .foot a { color: #2dd4bf; text-decoration: none; opacity: .9; }
@@ -522,6 +528,9 @@ const PAGE = `<!doctype html>
         <span>copy.jaba.ge</span>
       </div>
     </div>
+    <a class="bloglogo" href="https://clihero.com" target="_blank" rel="noopener" aria-label="clihero.com">
+      <img src="https://clihero.com/white-logo.png" alt="clihero.com" width="94" height="28" />
+    </a>
   </div>
 
   <header style="display:none" id="bar">
